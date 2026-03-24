@@ -1680,7 +1680,7 @@ update_script() {
     echo "正在从 GitHub 更新脚本..."
     
     # 下载最新脚本
-    wget -O /tmp/frpc_manager.sh https://raw.githubusercontent.com/zhangenine/frpc_manager/main/frpc_manager.sh 2>/dev/null
+    wget -O /tmp/frpc_manager.sh https://raw.githubusercontent.com/zhangenine/frpc_manager/refs/heads/main/frpc_manager.sh 2>/dev/null
     
     if [ $? -ne 0 ]; then
         echo "❌ 下载脚本失败，请检查网络连接"
