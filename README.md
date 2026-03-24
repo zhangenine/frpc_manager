@@ -50,12 +50,13 @@ chmod +x frpc_manager.sh
 
 脚本会自动执行以下操作：
 - 检查系统环境和包管理器
-- 安装必要依赖（curl、git、systemd）
+- 安装必要依赖（curl、git、systemd、logrotate）
 - 创建安装目录
 - 检测系统架构
 - 检查并更新 FRPC 版本
 - 复制配置文件和二进制文件
-- 创建 systemd 服务
+- 创建 systemd 服务（配置日志重定向）
+- 配置 logrotate（自动清理日志）
 - 启动并启用服务
 - 创建监控脚本
 - 配置定时任务
@@ -69,15 +70,19 @@ chmod +x frpc_manager.sh
 └── monitor_frpc.sh # 监控脚本
 
 /var/log/frpc/     # 日志目录
-├── install.log    # 安装日志
-├── frpc1.log      # frpc1 监控日志
-├── frpc2.log      # frpc2 监控日志
+├── install.log    # 安装流程日志
+├── monitor.log    # 监控脚本重启记录
+├── frpc1.log      # frpc1 进程运行日志
+├── frpc2.log      # frpc2 进程运行日志
 └── ...
 
 /etc/systemd/system/
 ├── frpc1.service  # frpc1 服务文件
 ├── frpc2.service  # frpc2 服务文件
 └── ...
+
+/etc/logrotate.d/
+└── frpc           # 日志轮转配置
 ```
 
 ## 🎯 使用方法
@@ -165,10 +170,10 @@ remote_port = 8080
 ### 监控脚本功能
 
 - 检查 FRPC 服务是否正在运行
-- 检查服务日志中是否有 "login to server success" 记录
-- 检查最近 24 小时内是否有登录成功记录
-- 检测到问题时自动重启服务
-- 限制监控日志文件大小，避免占用过多磁盘空间
+- **智能断连判断**：仅检查最近 5 分钟的日志，确保判断实时准确
+- **双重验证**：如果 5 分钟内有成功记录则跳过；只有在无成功记录且有错误记录时才重启
+- 检测到问题时自动重启服务，并记录到 `monitor.log`
+- 不再向运行日志（`frpc*.log`）写入监控信息，保持日志纯净
 
 ### 定时任务
 
@@ -180,17 +185,31 @@ remote_port = 8080
 
 ## 📊 日志管理
 
-### 安装日志
+### 运行日志
 
-- 路径：`/var/log/frpc/install.log`
-- 内容：详细的安装过程日志，包括时间戳、操作内容和结果
-- 日志轮转：当日志文件超过 5MB 时，会保留最后 1000 行记录
+- 路径：`/var/log/frpc/frpc*.log`
+- 内容：frpc 进程的原始输出日志
+- 大小限制：5MB，由 logrotate 自动管理
 
 ### 监控日志
 
-- 路径：`/var/log/frpc/frpc*.log`
-- 内容：监控脚本的运行日志，包括服务状态检查和重启记录
-- 日志轮转：当日志文件超过 10MB 时，会保留最后 500 行记录
+- 路径：`/var/log/frpc/monitor.log`
+- 内容：监控脚本的重启和检查记录
+- 大小限制：5MB，由 logrotate 自动管理
+
+### 安装日志
+
+- 路径：`/var/log/frpc/install.log`
+- 内容：详细的安装过程日志
+- 大小限制：5MB，自动清理旧记录
+
+### 日志轮转配置 (logrotate)
+
+所有日志均由 logrotate 统一管理，配置如下：
+- **触发大小**：5MB
+- **保留份数**：最近 5 份
+- **压缩保存**：旧日志自动压缩
+- **即时生效**：使用 `copytruncate` 模式，无需重启服务即可轮转日志
 
 ## ❓ 常见问题
 
