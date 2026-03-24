@@ -1708,10 +1708,10 @@ update_script() {
         create_monitor_script
         echo "✅ 监控脚本更新成功！"
         echo ""
-        echo "脚本已自动更新并重新加载，正在返回主菜单..."
-        sleep 2
+        echo "脚本已自动更新，正在返回主菜单..."
         # 重新运行脚本以应用更新
-        exec "$0" "$@"
+        bash "$0" "$@"
+        exit 0
     else
         echo "❌ 脚本更新失败"
     fi
