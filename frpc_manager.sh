@@ -108,19 +108,19 @@ install_dependencies() {
     case $PM in
         "apt")
             # 使用apt命令安装依赖，不更新包列表，--no-install-recommends避免安装不必要的推荐包
-            DEBIAN_FRONTEND=noninteractive apt install -y -qq curl git systemd --no-install-recommends --no-upgrade 2>&1 | grep -v "WARNING: apt does not have a stable CLI interface"
+            DEBIAN_FRONTEND=noninteractive apt install -y -qq curl git systemd logrotate --no-install-recommends --no-upgrade 2>&1 | grep -v "WARNING: apt does not have a stable CLI interface"
             ;;
         "yum")
             # 使用yum安装依赖，不更新系统，--assumeno避免任何交互式确认
-            yum install -y --assumeno curl git systemd
+            yum install -y --assumeno curl git systemd logrotate
             ;;
         "dnf")
             # 使用dnf安装依赖，不更新系统，--assumeno避免任何交互式确认
-            dnf install -y --assumeno curl git systemd
+            dnf install -y --assumeno curl git systemd logrotate
             ;;
         "pacman")
             # 使用pacman安装依赖，-S仅安装指定包，不更新系统
-            pacman -S --noconfirm curl git systemd
+            pacman -S --noconfirm curl git systemd logrotate
             ;;
         *)
             echo "错误：不支持的包管理器"
@@ -756,6 +756,9 @@ create_frpc_service() {
         return 1
     fi
     
+    # 确保日志目录存在
+    mkdir -p /var/log/frpc
+    
     cat > /etc/systemd/system/frpc$i.service << EOF
 [Unit]
 Description=FRPC Client $i
@@ -763,7 +766,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/frpc/bin/frpc -c $config_file
+# 将 stdout 和 stderr 重定向到日志文件，以便 logrotate 管理
+ExecStart=/bin/bash -c "exec /usr/local/frpc/bin/frpc -c $config_file >> /var/log/frpc/frpc$i.log 2>&1"
 Restart=always
 RestartSec=5
 User=root
@@ -772,6 +776,29 @@ Group=root
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+# 配置 logrotate 以限制日志大小为 5MB
+setup_logrotate() {
+    echo "配置 logrotate..."
+    
+    # 确保日志目录存在
+    mkdir -p /var/log/frpc
+    
+    # 创建 logrotate 配置文件
+     cat > /etc/logrotate.d/frpc << EOF
+/var/log/frpc/frpc*.log /var/log/frpc/monitor.log {
+     size 5M
+     rotate 5
+     copytruncate
+     missingok
+     notifempty
+     compress
+     delaycompress
+     dateext
+ }
+ EOF
+    echo "✓ logrotate 配置完成 (大小限制: 5MB)"
 }
 
 
@@ -843,10 +870,11 @@ create_monitor_script() {
 #!/bin/bash
 
 # FRPC 日志监控脚本
-# 功能：检查 frpc 日志中是否有 "login to server success"，如果没有则重启服务
+# 功能：检查 frpc 服务状态，如果异常则重启，并将监控日志存储在单独的文件中
 
 LOG_DIR="/var/log/frpc"
-MAX_LOG_SIZE=10485760  # 10MB
+MONITOR_LOG="$LOG_DIR/monitor.log"
+MAX_LOG_SIZE=5242880  # 5MB
 
 # 创建日志目录
 mkdir -p $LOG_DIR
@@ -854,56 +882,44 @@ mkdir -p $LOG_DIR
 # 检查单个 frpc 服务
 check_frpc_service() {
     local service_name="$1"
-    local log_file="$LOG_DIR/${service_name}.log"
+    local check_window="5 minutes ago"
     
     # 检查服务是否正在运行
     if systemctl is-active --quiet "$service_name"; then
-        # 首先检查是否有连接服务器错误
-        local connection_error=$(journalctl -u "$service_name" --grep="connect to server error" --no-pager)
+        # 1. 检查最近 5 分钟内是否有成功登录记录
+        local recent_success=$(journalctl -u "$service_name" --since "$check_window" --grep="login to server success" --no-pager)
         
-        if [ -n "$connection_error" ]; then
-            # 检测到连接服务器错误
-            echo "[$(date)] 警告: $service_name 检测到 'connect to server error' 错误，正在重启服务..." >> "$log_file"
+        if [ -n "$recent_success" ]; then
+            # 最近有成功登录记录，状态正常
+            return 0
+        fi
+        
+        # 2. 如果没有成功记录，检查最近 5 分钟内是否有连接错误记录
+        local recent_error=$(journalctl -u "$service_name" --since "$check_window" --grep="connect to server error" --no-pager)
+        
+        if [ -n "$recent_error" ]; then
+            # 最近有错误记录且没有成功记录，说明可能真的断连了
+            echo "[$(date)] 警告: $service_name 最近 5 分钟内检测到连接错误且无成功恢复记录，正在重启服务..." >> "$MONITOR_LOG"
             systemctl restart "$service_name"
-            echo "[$(date)] $service_name 服务已重启" >> "$log_file"
+            echo "[$(date)] $service_name 服务已重启" >> "$MONITOR_LOG"
         else
-            # 服务正在运行且未检测到连接错误，检查日志中是否有登录成功信息
-            local all_logs=$(journalctl -u "$service_name" --grep="login to server success" --no-pager)
-            
-            if [ -z "$all_logs" ]; then
-                # 没有找到任何登录成功记录
-                echo "[$(date)] 警告: $service_name 正在运行但未找到 'login to server success' 记录，正在重启服务..." >> "$log_file"
-                systemctl restart "$service_name"
-                echo "[$(date)] $service_name 服务已重启" >> "$log_file"
-            else
-                # 找到登录成功记录，检查最近一次登录是否在合理时间内（比如24小时内）
-                local last_login=$(journalctl -u "$service_name" --grep="login to server success" --since="1 day ago" --no-pager)
-                
-                if [ -z "$last_login" ]; then
-                    # 最近24小时内没有登录成功记录
-                    echo "[$(date)] 警告: $service_name 正在运行但最近24小时内未找到 'login to server success' 记录，正在重启服务..." >> "$log_file"
-                    systemctl restart "$service_name"
-                    echo "[$(date)] $service_name 服务已重启" >> "$log_file"
-                else
-                    echo "[$(date)] $service_name 登录状态正常" >> "$log_file"
-                fi
-            fi
+            # 既没有成功记录也没有错误记录，可能是长时间稳定运行或 frpc 处于空闲状态，不执行重启
+            :
         fi
     else
-        # 服务未运行，重启服务
-        echo "[$(date)] 警告: $service_name 服务未运行，正在启动服务..." >> "$log_file"
+        # 服务未运行，直接启动
+        echo "[$(date)] 警告: $service_name 服务未运行，正在启动服务..." >> "$MONITOR_LOG"
         systemctl start "$service_name"
-        echo "[$(date)] $service_name 服务已启动" >> "$log_file"
+        echo "[$(date)] $service_name 服务已启动" >> "$MONITOR_LOG"
     fi
     
-    # 限制日志文件大小，只保留一个最近的日志文件
-    if [ -f "$log_file" ]; then
-        if [ $(stat -c%s "$log_file") -gt $MAX_LOG_SIZE ]; then
-            # 直接截断日志文件，保留最新的日志内容
-            # 计算需要保留的行数（大约保留最后500行）
-            tail -n 500 "$log_file" > "${log_file}.tmp"
-            mv "${log_file}.tmp" "$log_file"
-            echo "[$(date)] 监控日志已截断，只保留最新内容" >> "$log_file"
+    # 限制监控日志文件大小
+    if [ -f "$MONITOR_LOG" ]; then
+        if [ $(stat -c%s "$MONITOR_LOG") -gt $MAX_LOG_SIZE ]; then
+            # 直接截断监控日志文件，保留最新的日志内容
+            tail -n 1000 "$MONITOR_LOG" > "${MONITOR_LOG}.tmp"
+            mv "${MONITOR_LOG}.tmp" "$MONITOR_LOG"
+            echo "[$(date)] 监控日志已自动清理，保留最新1000行内容" >> "$MONITOR_LOG"
         fi
     fi
 }
@@ -1056,6 +1072,9 @@ install() {
             create_frpc_service $i
         fi
     done
+    
+    log_message "INFO" "配置 logrotate..."
+    setup_logrotate
     
     log_message "INFO" "启动 frpc 服务..."
     start_services
@@ -1296,7 +1315,12 @@ manage_service() {
         5)
             echo "$service_name 服务日志（最近20行）："
             echo "----------------------------------------"
-            journalctl -u "$service_name" --no-pager -n 20
+            # 优先显示日志文件，如果不存在则显示 journalctl
+            if [ -f "/var/log/frpc/${service_name}.log" ]; then
+                tail -n 20 "/var/log/frpc/${service_name}.log"
+            else
+                journalctl -u "$service_name" --no-pager -n 20
+            fi
             ;;
         6)
             return
