@@ -1594,9 +1594,10 @@ main_menu() {
     echo "7. 查看监控脚本日志"
     echo "8. 查看安装日志"
     echo "9. 清除所有日志"
+    echo "10. 更新管理脚本"
     echo ""
         
-        read -p "请选择操作 (1-9，直接回车退出): " choice
+        read -p "请选择操作 (1-10，直接回车退出): " choice
         
         # 如果直接回车，退出程序
         if [ -z "$choice" ]; then
@@ -1639,8 +1640,13 @@ main_menu() {
                 echo ""
                 read -p "按 Enter 键返回主菜单..." 
                 ;;
+            10)
+                update_script
+                echo ""
+                read -p "按 Enter 键返回主菜单..." 
+                ;;
             *)
-                echo "错误：无效的选择，请输入 1-9 之间的数字"
+                echo "错误：无效的选择，请输入 1-10 之间的数字"
                 read -p "按 Enter 键继续..." 
                 ;;
         esac
@@ -1662,6 +1668,51 @@ restart_frpc_services() {
         fi
     done
     echo "✓ 服务重启完成"
+}
+
+# 更新脚本
+update_script() {
+    clear_screen
+    display_title
+    echo "更新 FRPC 管理脚本："
+    echo "----------------------------------------"
+    
+    echo "正在从 GitHub 更新脚本..."
+    
+    # 下载最新脚本
+    wget -O /tmp/frpc_manager.sh https://raw.githubusercontent.com/zhangenine/frpc_manager/main/frpc_manager.sh 2>/dev/null
+    
+    if [ $? -ne 0 ]; then
+        echo "❌ 下载脚本失败，请检查网络连接"
+        return 1
+    fi
+    
+    # 检查脚本是否下载成功
+    if [ ! -f /tmp/frpc_manager.sh ]; then
+        echo "❌ 脚本下载失败，文件不存在"
+        return 1
+    fi
+    
+    # 设置执行权限
+    chmod +x /tmp/frpc_manager.sh
+    
+    # 替换当前脚本
+    cp -f /tmp/frpc_manager.sh "$0"
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ 脚本更新成功！"
+        echo ""
+        echo "正在更新监控脚本..."
+        create_monitor_script
+        echo "✅ 监控脚本更新成功！"
+        echo ""
+        echo "请重新运行脚本以应用更新"
+    else
+        echo "❌ 脚本更新失败"
+    fi
+    
+    # 清理临时文件
+    rm -f /tmp/frpc_manager.sh
 }
 
 # 清除所有日志
