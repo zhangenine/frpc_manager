@@ -27,8 +27,8 @@
 1. **下载脚本**
 
 ```bash
-git clone https://github.com/yourusername/frpc-installer.git
-cd frpc-installer
+git clone https://github.com/zhangenine/frpc_manager.git
+cd frpc_manager
 ```
 
 2. **准备配置文件**
