@@ -1679,17 +1679,19 @@ update_script() {
     
     echo "正在从 GitHub 更新脚本..."
     
-    # 下载最新脚本
+    # 尝试使用 wget 下载
+    echo "尝试使用 wget 下载..."
     wget -O /tmp/frpc_manager.sh https://raw.githubusercontent.com/zhangenine/frpc_manager/refs/heads/main/frpc_manager.sh 2>/dev/null
     
-    if [ $? -ne 0 ]; then
-        echo "❌ 下载脚本失败，请检查网络连接"
-        return 1
+    # 如果 wget 失败，尝试使用 curl 下载
+    if [ $? -ne 0 ] || [ ! -f /tmp/frpc_manager.sh ]; then
+        echo "wget 下载失败，尝试使用 curl 下载..."
+        curl -o /tmp/frpc_manager.sh https://raw.githubusercontent.com/zhangenine/frpc_manager/refs/heads/main/frpc_manager.sh 2>/dev/null
     fi
     
     # 检查脚本是否下载成功
     if [ ! -f /tmp/frpc_manager.sh ]; then
-        echo "❌ 脚本下载失败，文件不存在"
+        echo "❌ 脚本下载失败，请检查网络连接"
         return 1
     fi
     
@@ -1706,7 +1708,10 @@ update_script() {
         create_monitor_script
         echo "✅ 监控脚本更新成功！"
         echo ""
-        echo "请重新运行脚本以应用更新"
+        echo "脚本已自动更新并重新加载，正在返回主菜单..."
+        sleep 2
+        # 重新运行脚本以应用更新
+        exec "$0" "$@"
     else
         echo "❌ 脚本更新失败"
     fi
