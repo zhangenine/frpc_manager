@@ -42,8 +42,8 @@ cd frpc_manager
 3. **运行脚本**
 
 ```bash
-chmod +x install_frpc.sh
-./install_frpc.sh
+chmod +x frpc_manager.sh
+./frpc_manager.sh
 ```
 
 4. **自动安装流程**
