@@ -881,7 +881,7 @@ check_frpc_service() {
     # 检查服务是否正在运行
     if systemctl is-active --quiet "$service_name"; then
         # 1. 检查最近 5 分钟内是否有成功登录记录
-        local recent_success=$(journalctl -u "$service_name" --since "$check_window" --grep="login to server success" --no-pager)
+        local recent_success=$(grep -i "login to server success" "$service_log" | tail -n 5)
         
         if [ -n "$recent_success" ]; then
             # 最近有成功登录记录，状态正常
@@ -891,7 +891,7 @@ check_frpc_service() {
         fi
         
         # 2. 检查最近 5 分钟内是否有任何活动记录
-        local recent_activity=$(journalctl -u "$service_name" --since "$check_window" --no-pager | head -n 5)
+        local recent_activity=$(tail -n 10 "$service_log")
         
         if [ -n "$recent_activity" ]; then
             # 有活动记录，说明服务正常运行
@@ -901,7 +901,7 @@ check_frpc_service() {
         fi
         
         # 3. 如果没有成功记录，检查最近 5 分钟内是否有连接错误记录
-        local recent_error=$(journalctl -u "$service_name" --since "$check_window" --grep="connect to server error" --no-pager)
+        local recent_error=$(grep -i "connect to server error" "$service_log" | tail -n 5)
         
         if [ -n "$recent_error" ]; then
             # 最近有错误记录且没有成功记录，说明可能真的断连了
@@ -1500,9 +1500,15 @@ view_logs() {
     fi
     
     echo ""
-    echo "$service_name 服务日志（全部）："
+    echo "$service_name 服务日志（文件日志）："
     echo "----------------------------------------"
-    journalctl -u "$service_name" --no-pager
+    # 优先显示日志文件
+    if [ -f "/var/log/frpc/${service_name}.log" ]; then
+        cat "/var/log/frpc/${service_name}.log"
+    else
+        echo "未找到日志文件，显示 systemd 日志："
+        journalctl -u "$service_name" --no-pager
+    fi
     
     echo ""
     echo "日志文件位置：/var/log/frpc/$service_name.log"
