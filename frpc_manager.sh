@@ -884,7 +884,7 @@ check_frpc_service() {
         
         if [ -n "$recent_success" ]; then
             # 最近有成功登录记录，状态正常
-            local log_message="[$(date)] 信息: $service_name 服务运行正常，最近有成功登录记录"
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，最近有成功登录记录"
             echo "$log_message" >> "$service_log"
             return 0
         fi
@@ -894,7 +894,7 @@ check_frpc_service() {
         
         if [ -n "$recent_activity" ]; then
             # 有活动记录，说明服务正常运行
-            local log_message="[$(date)] 信息: $service_name 服务运行正常，有活动记录"
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，有活动记录"
             echo "$log_message" >> "$service_log"
             return 0
         fi
@@ -904,22 +904,22 @@ check_frpc_service() {
         
         if [ -n "$recent_error" ]; then
             # 最近有错误记录且没有成功记录，说明可能真的断连了
-            local log_message="[$(date)] 警告: $service_name 最近 5 分钟内检测到连接错误且无成功恢复记录，正在重启服务..."
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 警告: $service_name 最近 5 分钟内检测到连接错误且无成功恢复记录，正在重启服务..."
             echo "$log_message" >> "$service_log"
             systemctl restart "$service_name"
-            local log_message="[$(date)] $service_name 服务已重启"
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] $service_name 服务已重启"
             echo "$log_message" >> "$service_log"
         else
             # 既没有成功记录也没有错误记录，可能是长时间稳定运行或 frpc 处于空闲状态，不执行重启
-            local log_message="[$(date)] 信息: $service_name 服务运行正常，无近期活动记录"
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，无近期活动记录"
             echo "$log_message" >> "$service_log"
         fi
     else
         # 服务未运行，直接启动
-        local log_message="[$(date)] 警告: $service_name 服务未运行，正在启动服务..."
+        local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 警告: $service_name 服务未运行，正在启动服务..."
         echo "$log_message" >> "$service_log"
         systemctl start "$service_name"
-        local log_message="[$(date)] $service_name 服务已启动"
+        local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] $service_name 服务已启动"
         echo "$log_message" >> "$service_log"
     fi
     
@@ -929,7 +929,7 @@ check_frpc_service() {
             # 直接截断服务日志文件，保留最新的日志内容
             tail -n 1000 "$service_log" > "${service_log}.tmp"
             mv "${service_log}.tmp" "$service_log"
-            echo "[$(date)] 服务日志已自动清理，保留最新1000行内容" >> "$service_log"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] 服务日志已自动清理，保留最新1000行内容" >> "$service_log"
         fi
     fi
 }
