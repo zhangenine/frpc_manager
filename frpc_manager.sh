@@ -873,7 +873,6 @@ mkdir -p $LOG_DIR
 # 检查单个 frpc 服务
 check_frpc_service() {
     local service_name="$1"
-    local check_window="5 minutes ago"
     local service_log="$LOG_DIR/${service_name}.log"
     
     # 确保服务日志文件存在
@@ -881,40 +880,50 @@ check_frpc_service() {
     
     # 检查服务是否正在运行
     if systemctl is-active --quiet "$service_name"; then
-        # 1. 检查 systemd 日志中最近 5 分钟内是否有成功登录记录
-        local recent_success=$(journalctl -u "$service_name" --since "$check_window" --grep="login to server success" --no-pager 2>/dev/null)
+        # 1. 检查日志文件中是否有成功登录记录
+        local has_success=$(grep -i "login to server success" "$service_log" | tail -n 1)
         
-        if [ -n "$recent_success" ]; then
-            # 最近有成功登录记录，状态正常
-            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，最近有成功登录记录"
+        if [ -n "$has_success" ]; then
+            # 有成功登录记录，状态正常
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，有成功登录记录"
             echo "$log_message" >> "$service_log"
             return 0
         fi
         
-        # 2. 检查 systemd 日志中最近 5 分钟内是否有任何活动记录
-        local recent_activity=$(journalctl -u "$service_name" --since "$check_window" --no-pager 2>/dev/null | head -n 5)
+        # 2. 检查日志文件中是否有任何 frpc 日志记录（排除监控脚本自己的日志）
+        local has_frpc_logs=$(grep -E "^\d{4}-\d{2}-\d{2}" "$service_log" | tail -n 1)
         
-        if [ -n "$recent_activity" ]; then
-            # 有活动记录，说明服务正常运行
-            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，有活动记录"
+        if [ -n "$has_frpc_logs" ]; then
+            # 有 frpc 日志记录，说明服务正常运行
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，有 frpc 日志记录"
             echo "$log_message" >> "$service_log"
             return 0
         fi
         
-        # 3. 检查 systemd 日志中最近 5 分钟内是否有连接错误记录
-        local recent_error=$(journalctl -u "$service_name" --since "$check_window" --grep="connect to server error" --no-pager 2>/dev/null)
+        # 3. 检查日志文件中是否有连接错误记录
+        local has_error=$(grep -i "connect to server error" "$service_log" | tail -n 1)
         
-        if [ -n "$recent_error" ]; then
-            # 最近有错误记录且没有成功记录，说明可能真的断连了
-            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 警告: $service_name 最近 5 分钟内检测到连接错误且无成功恢复记录，正在重启服务..."
+        if [ -n "$has_error" ]; then
+            # 有错误记录且无成功记录，说明可能真的断连了
+            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 警告: $service_name 检测到连接错误且无成功恢复记录，正在重启服务..."
             echo "$log_message" >> "$service_log"
             systemctl restart "$service_name"
             local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] $service_name 服务已重启"
             echo "$log_message" >> "$service_log"
         else
-            # 既没有成功记录也没有错误记录，可能是长时间稳定运行或 frpc 处于空闲状态，不执行重启
-            local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务运行正常，无近期活动记录"
-            echo "$log_message" >> "$service_log"
+            # 既没有成功记录也没有错误记录，可能是刚启动或日志被清空
+            # 检查服务运行时间，如果运行时间小于 2 分钟，认为是刚启动
+            local uptime_seconds=$(systemctl show "$service_name" --property=ActiveEnterTimestampMonotonic --value 2>/dev/null | awk '{print $1/1000000}')
+            if [ -n "$uptime_seconds" ] && [ "$uptime_seconds" -lt 120 ]; then
+                local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 信息: $service_name 服务刚启动，等待日志生成..."
+                echo "$log_message" >> "$service_log"
+            else
+                local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] 警告: $service_name 服务运行时间较长但无日志记录，可能存在异常，正在重启服务..."
+                echo "$log_message" >> "$service_log"
+                systemctl restart "$service_name"
+                local log_message="[$(date '+%Y-%m-%d %H:%M:%S')] $service_name 服务已重启"
+                echo "$log_message" >> "$service_log"
+            fi
         fi
     else
         # 服务未运行，直接启动
@@ -936,20 +945,14 @@ check_frpc_service() {
     fi
 }
 
-# 清理超过 7 天的 system 日志
-cleanup_system_logs() {
-    echo "清理超过 7 天的 frpc 系统日志..."
+# 清理超过 7 天的日志文件
+cleanup_log_files() {
+    echo "清理超过 7 天的 frpc 日志文件..."
     
-    # 对每个 frpc 服务，清理超过 7 天的日志
-    for i in {1..10}; do
-        service_name="frpc$i"
-        if systemctl list-unit-files | grep -q "${service_name}.service"; then
-            # 使用 journalctl 的 vacuum-time 选项清理超过 7 天的日志
-            journalctl --vacuum-time=7d --unit="$service_name" --quiet
-        fi
-    done
+    # 清理超过 7 天的日志文件
+    find $LOG_DIR -name "*.log" -type f -mtime +7 -exec rm -f {} \; 2>/dev/null
     
-    echo "系统日志清理完成"
+    echo "日志文件清理完成"
 }
 
 # 检查所有 frpc 服务（1-10）
@@ -959,8 +962,8 @@ for i in {1..10}; do
     fi
 done
 
-# 清理系统日志
-cleanup_system_logs
+# 清理超过 7 天的日志文件
+cleanup_log_files
 EOF
     
     # 设置脚本执行权限
@@ -1501,10 +1504,14 @@ view_logs() {
     fi
     
     echo ""
-    echo "$service_name 服务日志（systemd 日志）："
+    echo "$service_name 服务日志（文件日志）："
     echo "----------------------------------------"
-    # 从 systemd 读取日志
-    journalctl -u "$service_name" --no-pager
+    # 从文件读取日志
+    if [ -f "/var/log/frpc/${service_name}.log" ]; then
+        cat "/var/log/frpc/${service_name}.log"
+    else
+        echo "未找到日志文件：/var/log/frpc/${service_name}.log"
+    fi
     
     echo ""
     echo "日志文件位置：/var/log/frpc/$service_name.log"
