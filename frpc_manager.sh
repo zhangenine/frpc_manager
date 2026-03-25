@@ -776,10 +776,13 @@ After=network.target
 
 [Service]
 Type=simple
-# 将 stdout 和 stderr 重定向到日志文件
+# 启动 frpc 服务
 ExecStart=/usr/local/frpc/bin/frpc -c $config_file
-StandardOutput=append:/var/log/frpc/frpc$i.log
-StandardError=append:/var/log/frpc/frpc$i.log
+# 同时输出到 journal 和文件
+StandardOutput=journal
+StandardError=journal
+# 使用 tee 命令将输出同时写入文件
+ExecStartPost=/bin/sh -c 'journalctl -u frpc$i.service -f | tee -a /var/log/frpc/frpc$i.log &'
 Restart=always
 RestartSec=5
 User=root
