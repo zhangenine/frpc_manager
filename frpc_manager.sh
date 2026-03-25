@@ -662,15 +662,21 @@ convert_ini_to_toml() {
 
 # 复制二进制文件和配置文件
 copy_files() {
-    # 获取脚本所在目录
-    SCRIPT_DIR="$(dirname "$0")"
+    # 获取脚本所在目录（使用更可靠的方法）
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    echo "脚本所在目录: $SCRIPT_DIR"
     
     # 创建目标目录
     mkdir -p /usr/local/frpc/bin
     mkdir -p /usr/local/frpc/config
     
     # 复制二进制文件
-    cp -f "$SCRIPT_DIR/frpc" /usr/local/frpc/bin/
+    if [ -f "$SCRIPT_DIR/frpc" ]; then
+        echo "找到二进制文件: $SCRIPT_DIR/frpc"
+        cp -f "$SCRIPT_DIR/frpc" /usr/local/frpc/bin/
+    else
+        echo "未找到二进制文件: $SCRIPT_DIR/frpc"
+    fi
     
     # 确保配置目录存在
     mkdir -p /usr/local/frpc/config
@@ -700,7 +706,10 @@ copy_files() {
                 config_file="$SCRIPT_DIR/frpc$i.$ext"
                 config_ext="$ext"
                 found=true
+                echo "找到配置文件: $config_file"
                 break
+            else
+                echo "未找到配置文件: $SCRIPT_DIR/frpc$i.$ext"
             fi
         done
         
@@ -737,8 +746,6 @@ copy_files() {
     
     # 设置执行权限
     chmod +x /usr/local/frpc/bin/frpc
-    
-    
     
     # 列出配置文件
     echo "配置文件："
