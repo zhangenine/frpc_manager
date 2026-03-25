@@ -1588,6 +1588,99 @@ view_monitor_logs() {
     read -p "按 Enter 键返回主菜单..."
 }
 
+# 卸载 FRPC 服务
+uninstall() {
+    clear_screen
+    display_title
+    echo "卸载 FRPC 服务："
+    echo "----------------------------------------"
+    
+    echo "警告：此操作将删除所有 FRPC 相关文件和服务！"
+    echo "包括："
+    echo "  - 所有 frpc 服务"
+    echo "  - frpc 二进制文件"
+    echo "  - 配置文件"
+    echo "  - 日志文件"
+    echo "  - 监控脚本"
+    echo "  - crontab 定时任务"
+    echo ""
+    
+    read -p "确定要卸载吗？(输入 yes 确认): " confirm
+    
+    if [ "$confirm" != "yes" ]; then
+        echo "取消卸载"
+        return
+    fi
+    
+    echo ""
+    echo "开始卸载..."
+    
+    # 1. 停止所有 frpc 服务
+    echo "停止所有 frpc 服务..."
+    for i in {1..10}; do
+        systemctl stop frpc$i 2>/dev/null || true
+    done
+    
+    # 2. 禁用所有 frpc 服务
+    echo "禁用所有 frpc 服务..."
+    for i in {1..10}; do
+        systemctl disable frpc$i 2>/dev/null || true
+    done
+    
+    # 3. 删除所有 frpc 服务文件
+    echo "删除所有 frpc 服务文件..."
+    for i in {1..10}; do
+        rm -f /etc/systemd/system/frpc$i.service 2>/dev/null
+    done
+    
+    # 4. 重新加载 systemd 配置
+    echo "重新加载 systemd 配置..."
+    systemctl daemon-reload
+    
+    # 5. 删除 frpc 二进制文件
+    echo "删除 frpc 二进制文件..."
+    rm -f /usr/local/frpc/bin/frpc 2>/dev/null
+    
+    # 6. 删除配置文件
+    echo "删除配置文件..."
+    rm -f /usr/local/frpc/config/frpc*.* 2>/dev/null
+    
+    # 7. 删除日志文件
+    echo "删除日志文件..."
+    rm -f /var/log/frpc/*.log 2>/dev/null
+    
+    # 8. 删除监控脚本
+    echo "删除监控脚本..."
+    rm -f /usr/local/frpc/monitor_frpc.sh 2>/dev/null
+    
+    # 9. 删除 crontab 定时任务
+    echo "删除 crontab 定时任务..."
+    crontab -l 2>/dev/null | grep -v "/usr/local/frpc/monitor_frpc.sh" | crontab -
+    
+    # 10. 删除安装目录（如果为空）
+    echo "清理安装目录..."
+    rmdir /usr/local/frpc/bin 2>/dev/null || true
+    rmdir /usr/local/frpc/config 2>/dev/null || true
+    rmdir /usr/local/frpc 2>/dev/null || true
+    
+    # 11. 删除日志目录（如果为空）
+    echo "清理日志目录..."
+    rmdir /var/log/frpc 2>/dev/null || true
+    
+    echo ""
+    echo "✓ FRPC 服务卸载完成！"
+    echo ""
+    echo "已删除的内容："
+    echo "  - 所有 frpc 服务"
+    echo "  - frpc 二进制文件"
+    echo "  - 配置文件"
+    echo "  - 日志文件"
+    echo "  - 监控脚本"
+    echo "  - crontab 定时任务"
+    echo ""
+    echo "注意：/usr/local/frpc 和 /var/log/frpc 目录可能仍然存在（如果包含其他文件）"
+}
+
 # 主菜单
 main_menu() {
     while true; do
@@ -1603,9 +1696,10 @@ main_menu() {
     echo "8. 查看安装日志"
     echo "9. 清除所有日志"
     echo "10. 更新管理脚本"
+    echo "11. 卸载 FRPC 服务"
     echo ""
         
-        read -p "请选择操作 (1-10，直接回车退出): " choice
+        read -p "请选择操作 (1-11，直接回车退出): " choice
         
         # 如果直接回车，退出程序
         if [ -z "$choice" ]; then
@@ -1653,8 +1747,13 @@ main_menu() {
                 echo ""
                 read -p "按 Enter 键返回主菜单..." 
                 ;;
+            11)
+                uninstall
+                echo ""
+                read -p "按 Enter 键返回主菜单..." 
+                ;;
             *)
-                echo "错误：无效的选择，请输入 1-10 之间的数字"
+                echo "错误：无效的选择，请输入 1-11 之间的数字"
                 read -p "按 Enter 键继续..." 
                 ;;
         esac
