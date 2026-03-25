@@ -662,12 +662,15 @@ convert_ini_to_toml() {
 
 # 复制二进制文件和配置文件
 copy_files() {
+    # 获取脚本所在目录
+    SCRIPT_DIR="$(dirname "$0")"
+    
     # 创建目标目录
     mkdir -p /usr/local/frpc/bin
     mkdir -p /usr/local/frpc/config
     
     # 复制二进制文件
-    cp -f frpc /usr/local/frpc/bin/
+    cp -f "$SCRIPT_DIR/frpc" /usr/local/frpc/bin/
     
     # 确保配置目录存在
     mkdir -p /usr/local/frpc/config
@@ -693,8 +696,8 @@ copy_files() {
         
         # 按优先级检查不同格式的配置文件
         for ext in ini json yaml yml toml; do
-            if [ -f "frpc$i.$ext" ]; then
-                config_file="frpc$i.$ext"
+            if [ -f "$SCRIPT_DIR/frpc$i.$ext" ]; then
+                config_file="$SCRIPT_DIR/frpc$i.$ext"
                 config_ext="$ext"
                 found=true
                 break
@@ -708,18 +711,18 @@ copy_files() {
             cp -f "$config_file" /usr/local/frpc/config/
             
             # 验证配置文件是否成功复制
-            if diff -q "$config_file" "/usr/local/frpc/config/$config_file" > /dev/null 2>&1; then
-                echo "✓ $config_file 成功复制到 /usr/local/frpc/config/"
+            if diff -q "$config_file" "/usr/local/frpc/config/$(basename "$config_file")" > /dev/null 2>&1; then
+                echo "✓ $(basename "$config_file") 成功复制到 /usr/local/frpc/config/"
             else
-                echo "✗ 警告：$config_file 复制失败或未成功覆盖"
+                echo "✗ 警告：$(basename "$config_file") 复制失败或未成功覆盖"
                 # 尝试使用更强制的方法复制
                 echo "正在尝试使用强制覆盖..."
-                rm -f "/usr/local/frpc/config/$config_file" 2>/dev/null
+                rm -f "/usr/local/frpc/config/$(basename "$config_file")" 2>/dev/null
                 cp "$config_file" /usr/local/frpc/config/
-                if [ -f "/usr/local/frpc/config/$config_file" ]; then
-                    echo "✓ $config_file 强制覆盖成功"
+                if [ -f "/usr/local/frpc/config/$(basename "$config_file")" ]; then
+                    echo "✓ $(basename "$config_file") 强制覆盖成功"
                 else
-                    echo "✗ 错误：$config_file 强制覆盖也失败了"
+                    echo "✗ 错误：$(basename "$config_file") 强制覆盖也失败了"
                 fi
             fi
             
@@ -735,7 +738,7 @@ copy_files() {
     # 设置执行权限
     chmod +x /usr/local/frpc/bin/frpc
     
-
+    
     
     # 列出配置文件
     echo "配置文件："
