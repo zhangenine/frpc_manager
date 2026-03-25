@@ -873,13 +873,9 @@ check_frpc_service() {
     local service_name="$1"
     local check_window="5 minutes ago"
     local service_log="$LOG_DIR/${service_name}.log"
-    local monitor_log="$LOG_DIR/monitor_${service_name}.log"
     
     # 确保服务日志文件存在
     touch "$service_log"
-    
-    # 确保监控日志文件存在
-    touch "$monitor_log"
     
     # 检查服务是否正在运行
     if systemctl is-active --quiet "$service_name"; then
@@ -889,7 +885,6 @@ check_frpc_service() {
         if [ -n "$recent_success" ]; then
             # 最近有成功登录记录，状态正常
             local log_message="[$(date)] 信息: $service_name 服务运行正常，最近有成功登录记录"
-            echo "$log_message" >> "$monitor_log"
             echo "$log_message" >> "$service_log"
             return 0
         fi
@@ -900,7 +895,6 @@ check_frpc_service() {
         if [ -n "$recent_activity" ]; then
             # 有活动记录，说明服务正常运行
             local log_message="[$(date)] 信息: $service_name 服务运行正常，有活动记录"
-            echo "$log_message" >> "$monitor_log"
             echo "$log_message" >> "$service_log"
             return 0
         fi
@@ -911,37 +905,22 @@ check_frpc_service() {
         if [ -n "$recent_error" ]; then
             # 最近有错误记录且没有成功记录，说明可能真的断连了
             local log_message="[$(date)] 警告: $service_name 最近 5 分钟内检测到连接错误且无成功恢复记录，正在重启服务..."
-            echo "$log_message" >> "$monitor_log"
             echo "$log_message" >> "$service_log"
             systemctl restart "$service_name"
             local log_message="[$(date)] $service_name 服务已重启"
-            echo "$log_message" >> "$monitor_log"
             echo "$log_message" >> "$service_log"
         else
             # 既没有成功记录也没有错误记录，可能是长时间稳定运行或 frpc 处于空闲状态，不执行重启
             local log_message="[$(date)] 信息: $service_name 服务运行正常，无近期活动记录"
-            echo "$log_message" >> "$monitor_log"
             echo "$log_message" >> "$service_log"
         fi
     else
         # 服务未运行，直接启动
         local log_message="[$(date)] 警告: $service_name 服务未运行，正在启动服务..."
-        echo "$log_message" >> "$monitor_log"
         echo "$log_message" >> "$service_log"
         systemctl start "$service_name"
         local log_message="[$(date)] $service_name 服务已启动"
-        echo "$log_message" >> "$monitor_log"
         echo "$log_message" >> "$service_log"
-    fi
-    
-    # 限制监控日志文件大小
-    if [ -f "$monitor_log" ]; then
-        if [ $(stat -c%s "$monitor_log") -gt $MAX_LOG_SIZE ]; then
-            # 直接截断监控日志文件，保留最新的日志内容
-            tail -n 1000 "$monitor_log" > "${monitor_log}.tmp"
-            mv "${monitor_log}.tmp" "$monitor_log"
-            echo "[$(date)] 监控日志已自动清理，保留最新1000行内容" >> "$monitor_log"
-        fi
     fi
     
     # 限制服务日志文件大小
@@ -955,12 +934,31 @@ check_frpc_service() {
     fi
 }
 
+# 清理超过 7 天的 system 日志
+cleanup_system_logs() {
+    echo "清理超过 7 天的 frpc 系统日志..."
+    
+    # 对每个 frpc 服务，清理超过 7 天的日志
+    for i in {1..10}; do
+        service_name="frpc$i"
+        if systemctl list-unit-files | grep -q "${service_name}.service"; then
+            # 使用 journalctl 的 vacuum-time 选项清理超过 7 天的日志
+            journalctl --vacuum-time=7d --unit="$service_name" --quiet
+        fi
+    done
+    
+    echo "系统日志清理完成"
+}
+
 # 检查所有 frpc 服务（1-10）
 for i in {1..10}; do
     if systemctl list-unit-files | grep -q "frpc$i.service"; then
         check_frpc_service "frpc$i"
     fi
 done
+
+# 清理系统日志
+cleanup_system_logs
 EOF
     
     # 设置脚本执行权限
@@ -1160,7 +1158,7 @@ install() {
     echo "========================================"
     
     # 结束日志记录
-    } 2>&1 | tee "$INSTALL_LOG"
+    } 2>&1 | tee "$INSTALL_LOG_FILE"
 }
 
 # 显示所有frpc服务的运行状态
@@ -1515,44 +1513,44 @@ view_logs() {
 view_monitor_logs() {
     clear_screen
     display_title
-    echo "查看 FRPC 监控日志："
+    echo "查看 FRPC 服务日志："
     echo "----------------------------------------"
     
-    # 显示监控日志文件列表
-    echo "可用的监控日志文件："
+    # 显示服务日志文件列表
+    echo "可用的服务日志文件："
     echo "----------------------------------------"
     
     LOG_DIR="/var/log/frpc"
     if [ ! -d "$LOG_DIR" ]; then
-        echo "未找到监控日志目录：$LOG_DIR"
+        echo "未找到日志目录：$LOG_DIR"
         echo ""
         read -p "按 Enter 键返回主菜单..."
         return
     fi
     
-    monitor_logs=()
+    service_logs=()
     log_files=()
     index=1
     
-    for file in "$LOG_DIR"/monitor_*.log; do
+    for file in "$LOG_DIR"/frpc*.log; do
         if [ -f "$file" ]; then
             service_name=$(basename "$file" .log)
-            monitor_logs+=($service_name)
+            service_logs+=($service_name)
             log_files+=($file)
             echo "$index.$service_name.log"
             index=$((index + 1))
         fi
     done
     
-    if [ ${#monitor_logs[@]} -eq 0 ]; then
-        echo "没有找到监控日志文件"
+    if [ ${#service_logs[@]} -eq 0 ]; then
+        echo "没有找到服务日志文件"
         echo ""
         read -p "按 Enter 键返回主菜单..."
         return
     fi
     
     echo ""
-    read -p "请输入要查看的日志编号 (1-${#monitor_logs[@]}，直接回车返回): " choice
+    read -p "请输入要查看的日志编号 (1-${#service_logs[@]}，直接回车返回): " choice
     
     # 如果直接回车，返回菜单
     if [ -z "$choice" ]; then
@@ -1560,7 +1558,7 @@ view_monitor_logs() {
     fi
     
     # 验证输入
-    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#monitor_logs[@]} ]; then
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#service_logs[@]} ]; then
         echo "错误：无效的日志编号"
         read -p "按 Enter 键返回菜单..."
         return
@@ -1568,11 +1566,11 @@ view_monitor_logs() {
     
     # 计算数组索引（从0开始）
     index=$((choice - 1))
-    service_name=${monitor_logs[$index]}
+    service_name=${service_logs[$index]}
     log_file=${log_files[$index]}
     
     echo ""
-    echo "$service_name 监控日志："
+    echo "$service_name 服务日志："
     echo "----------------------------------------"
     cat "$log_file"
     
