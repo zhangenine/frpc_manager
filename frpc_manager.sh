@@ -776,13 +776,11 @@ After=network.target
 
 [Service]
 Type=simple
-# 启动 frpc 服务，使用 script 命令捕获输出
-ExecStart=/bin/bash -c 'exec /usr/local/frpc/bin/frpc -c $config_file 2>&1 | tee -a /var/log/frpc/frpc$i.log'
-# 设置日志标识
-SyslogIdentifier=frpc$i
-# 同时输出到 journal
-StandardOutput=journal
-StandardError=journal
+# 启动 frpc 服务
+ExecStart=/usr/local/frpc/bin/frpc -c $config_file
+# 将 stdout 和 stderr 重定向到日志文件
+StandardOutput=append:/var/log/frpc/frpc$i.log
+StandardError=append:/var/log/frpc/frpc$i.log
 Restart=always
 RestartSec=5
 User=root
